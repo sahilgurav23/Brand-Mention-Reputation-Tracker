@@ -222,9 +222,9 @@ export default function Dashboard() {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-slate-50 to-slate-100 dark:from-slate-950 dark:to-slate-900">
+    <div className="min-h-screen bg-gradient-to-b from-slate-50 via-slate-100 to-slate-200 dark:from-slate-950 dark:via-slate-900 dark:to-slate-950">
       {/* Header */}
-      <header className="sticky top-0 z-50 border-b border-slate-200 dark:border-slate-800 bg-white/90 dark:bg-slate-900/90 backdrop-blur shadow-sm">
+      <header className="sticky top-0 z-50 border-b border-slate-200/70 dark:border-slate-800/70 bg-white/80 dark:bg-slate-900/80 backdrop-blur shadow-md">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
@@ -243,7 +243,7 @@ export default function Dashboard() {
               </div>
             </div>
 
-            <div className="flex items-center gap-4">
+            <div className="flex items-center gap-3">
               <button
                 onClick={handleRefresh}
                 disabled={isLoading}
@@ -258,14 +258,19 @@ export default function Dashboard() {
               <select
                 value={timeRange}
                 onChange={(e) => setTimeRange(e.target.value)}
-                className="px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white text-sm"
+                className="px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white text-sm shadow-sm"
               >
                 <option value="24h">Last 24 Hours</option>
                 <option value="7d">Last 7 Days</option>
                 <option value="30d">Last 30 Days</option>
               </select>
+              {brandName && (
+                <span className="hidden md:inline text-xs px-2 py-1 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200">
+                  Brand: {brandName}
+                </span>
+              )}
               {lastUpdated && (
-                <span className="hidden md:inline text-xs text-slate-500 dark:text-slate-400">
+                <span className="hidden lg:inline text-xs text-slate-500 dark:text-slate-400">
                   Last updated: {lastUpdated}
                 </span>
               )}
@@ -311,7 +316,7 @@ export default function Dashboard() {
         {/* Charts Section - timeline + sentiment overview */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           {/* Timeline Chart */}
-          <div className="lg:col-span-2 bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 p-6 shadow-sm">
+          <div className="lg:col-span-2 bg-white/90 dark:bg-slate-900/90 rounded-2xl border border-slate-200 dark:border-slate-800 p-6 shadow-md">
             <h2 className="text-lg font-semibold text-slate-900 dark:text-white mb-4">
               Mention Timeline
             </h2>
@@ -351,7 +356,7 @@ export default function Dashboard() {
           </div>
 
           {/* Sentiment Distribution */}
-          <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 p-6 shadow-sm">
+          <div className="bg-white/90 dark:bg-slate-900/90 rounded-2xl border border-slate-200 dark:border-slate-800 p-6 shadow-md">
             <h2 className="text-lg font-semibold text-slate-900 dark:text-white mb-4">
               Sentiment Distribution
             </h2>
@@ -380,7 +385,7 @@ export default function Dashboard() {
         {/* Topics and Sources */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           {/* Top Topics */}
-          <div className="bg-white dark:bg-slate-900 rounded-lg border border-slate-200 dark:border-slate-800 p-6">
+          <div className="bg-white/90 dark:bg-slate-900/90 rounded-2xl border border-slate-200 dark:border-slate-800 p-6 shadow-md">
             <h2 className="text-lg font-semibold text-slate-900 dark:text-white mb-4">
               Top Topics
             </h2>
@@ -518,24 +523,53 @@ function MetricCard({ icon: Icon, label, value, change, color }: MetricCardProps
     purple: "from-purple-500 to-purple-600",
   };
 
+  const bgTintClasses = {
+    blue: "bg-blue-50 dark:bg-blue-950/40",
+    green: "bg-emerald-50 dark:bg-emerald-950/40",
+    red: "bg-rose-50 dark:bg-rose-950/40",
+    purple: "bg-violet-50 dark:bg-violet-950/40",
+  };
+
+  const accentClasses = {
+    blue: "from-blue-400 via-blue-500 to-blue-600",
+    green: "from-emerald-400 via-emerald-500 to-emerald-600",
+    red: "from-rose-400 via-rose-500 to-rose-600",
+    purple: "from-violet-400 via-violet-500 to-violet-600",
+  };
+
   return (
-    <div className="bg-white dark:bg-slate-900 rounded-lg border border-slate-200 dark:border-slate-800 p-6 hover:shadow-lg transition-shadow">
+    <div
+      className={`relative overflow-hidden rounded-2xl border border-slate-200/80 dark:border-slate-800/80 p-6 shadow-md hover:shadow-lg transition-shadow ${bgTintClasses[color as keyof typeof bgTintClasses]}`}
+    >
+      <div
+        className={`pointer-events-none absolute inset-x-0 top-0 h-1 bg-gradient-to-r ${accentClasses[color as keyof typeof accentClasses]}`}
+      />
+
       <div className="flex items-start justify-between mb-4">
-        <div className={`w-12 h-12 rounded-lg bg-gradient-to-br ${colorClasses[color as keyof typeof colorClasses]} flex items-center justify-center`}>
+        <div
+          className={`w-12 h-12 rounded-xl bg-gradient-to-br ${colorClasses[color as keyof typeof colorClasses]} flex items-center justify-center shadow-md`}
+        >
           <Icon className="w-6 h-6 text-white" />
         </div>
         <span
-          className={`text-sm font-semibold ${
+          className={`text-xs font-semibold ${
             change >= 0
-              ? "text-green-600 dark:text-green-400"
-              : "text-red-600 dark:text-red-400"
+              ? "text-emerald-700 dark:text-emerald-300"
+              : "text-rose-600 dark:text-rose-300"
           }`}
         >
-          {change >= 0 ? "+" : ""}{change}%
+          {change >= 0 ? "+" : ""}
+          {change}%
         </span>
       </div>
-      <p className="text-slate-600 dark:text-slate-400 text-sm mb-1">{label}</p>
+
+      <p className="text-slate-600 dark:text-slate-400 text-xs mb-1 uppercase tracking-wide">
+        {label}
+      </p>
       <p className="text-3xl font-bold text-slate-900 dark:text-white">{value}</p>
+      <p className="text-xs text-slate-400 dark:text-slate-500 mt-1">
+        Compared to previous period
+      </p>
     </div>
   );
 }
