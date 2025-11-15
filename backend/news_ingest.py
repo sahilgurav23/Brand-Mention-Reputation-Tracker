@@ -1,21 +1,25 @@
-"""One-off script to ingest news articles into the mentions table.
+"""One-off script to ingest news articles into the ``mentions`` table.
 
-Usage (from backend folder, with venv active):
+Usage (from backend folder, with venv active)::
 
     python news_ingest.py
 
-This will:
-- Read brand search settings from app.utils.config.settings
-- Call NewsAPI via app.services.aggregator.aggregate_from_news
-- Run sentiment + topic classification for each article
-- Insert rows into the mentions table
+High-level flow:
+- Read brand search settings from ``app.utils.config.settings``.
+- Call NewsAPI via ``app.services.aggregator.aggregate_from_news`` to fetch articles.
+- Run sentiment + topic classification for each article.
+- Insert rows into the ``mentions`` table so the API + dashboard can see data.
+
+This script is intentionally simple so you can understand the full pipeline
+from external API -> processing -> database.
 """
 
 import asyncio
 from datetime import datetime
-from typing import List
+from typing import List, Dict
 
 from dateutil.parser import isoparse
+from sqlalchemy import text
 
 from app.models.database import Mention, SessionLocal
 from app.services.aggregator import aggregate_from_news
@@ -27,14 +31,66 @@ from app.utils.logger import setup_logger
 logger = setup_logger(__name__)
 
 
-async def ingest_news_mentions() -> None:
-    """Fetch news articles for the configured brand and store them as mentions."""
+def load_effective_settings() -> Dict[str, str]:
+  """Load editable settings from the app_settings table if present.
 
+  Values saved from the /settings UI are stored in app_settings. If
+  that table or its row does not exist yet, we fall back to
+  app.utils.config.settings (i.e. .env) so ingestion still works.
+  """
+
+  db = SessionLocal()
+  try:
+      row = db.execute(
+          text(
+              "SELECT news_api_key, brand_name, brand_keywords, search_query "
+              "FROM app_settings ORDER BY id LIMIT 1"
+          )
+      ).fetchone()
+
+      if row:
+          return {
+              "news_api_key": row[0] or settings.news_api_key,
+              "brand_name": row[1] or settings.brand_name,
+              "brand_keywords": row[2] or settings.brand_keywords,
+              "search_query": row[3] or settings.search_query,
+          }
+
+      # No DB row yet: fall back entirely to config.
+      return {
+          "news_api_key": settings.news_api_key,
+          "brand_name": settings.brand_name,
+          "brand_keywords": settings.brand_keywords,
+          "search_query": settings.search_query,
+      }
+  finally:
+      db.close()
+
+
+async def ingest_news_mentions() -> None:
+    """Fetch news articles for the configured brand and store them as mentions.
+
+    The goal is to populate the ``mentions`` table so that:
+    - ``/api/mentions`` returns real rows.
+    - ``/api/analytics/*`` endpoints have something to aggregate.
+    """
+
+    # 1) Load effective settings (prefer values edited from the /settings UI).
+    effective = load_effective_settings()
+
+    # Keep the global settings object in sync for downstream services
+    # such as aggregate_from_news, which reads settings.news_api_key.
+    if effective.get("news_api_key"):
+        settings.news_api_key = effective["news_api_key"]  # type: ignore[assignment]
+
+    # Decide what query to send to NewsAPI.
+    # We try, in order: search_query, brand_keywords, then brand_name.
     query_candidates: List[str] = [
-        settings.search_query.strip() if settings.search_query else "",
-        settings.brand_keywords.strip() if settings.brand_keywords else "",
-        settings.brand_name.strip() if settings.brand_name else "",
+        (effective.get("search_query") or "").strip(),
+        (effective.get("brand_keywords") or "").strip(),
+        (effective.get("brand_name") or "").strip(),
     ]
+    # Pick the first non-empty value.
     query = next((q for q in query_candidates if q), None)
 
     if not query:
@@ -43,6 +99,7 @@ async def ingest_news_mentions() -> None:
 
     logger.info("Starting NewsAPI ingestion for query: %s", query)
 
+    # 2) Fetch raw articles from NewsAPI (already normalized into simple dicts).
     articles = await aggregate_from_news(query)
     if not articles:
         logger.info("No articles returned from NewsAPI; nothing to ingest.")
@@ -52,18 +109,21 @@ async def ingest_news_mentions() -> None:
     created_count = 0
 
     try:
+        # 3) For each article: enrich with sentiment + topic and build a Mention row.
         for item in articles:
+            # Safely extract the text content we want to analyze.
             content = (item.get("content") or "").strip()
             if not content:
+                # Skip empty items instead of inserting junk rows.
                 continue
 
-            # Run sentiment analysis
+            # Run sentiment analysis (positive / negative / neutral + confidence).
             sentiment_result = await analyze_sentiment(content)
 
-            # Get topic
+            # Infer a simple topic label using the clustering stub.
             topic = await get_topic_for_mention(content)
 
-            # Parse created_at from NewsAPI (ISO8601) if available
+            # Parse created_at from NewsAPI (ISO8601) if available; fall back to now.
             created_at_raw = item.get("created_at")
             if created_at_raw:
                 try:
@@ -73,6 +133,7 @@ async def ingest_news_mentions() -> None:
             else:
                 created_at = datetime.utcnow()
 
+            # Create the ORM object; this is what will be written to PostgreSQL.
             db_mention = Mention(
                 source=item.get("source") or "news",
                 url=item.get("url") or "",
@@ -87,6 +148,7 @@ async def ingest_news_mentions() -> None:
             db.add(db_mention)
             created_count += 1
 
+        # 4) Persist all new mentions in a single transaction.
         if created_count:
             db.commit()
         logger.info("Ingested %d news mentions into the database", created_count)
@@ -100,4 +162,6 @@ async def ingest_news_mentions() -> None:
 
 
 if __name__ == "__main__":
+    # Entry point when you run: ``python news_ingest.py``.
+    # We simply run the async ingestion coroutine once and exit.
     asyncio.run(ingest_news_mentions())

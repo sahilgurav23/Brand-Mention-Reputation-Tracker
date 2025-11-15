@@ -1,5 +1,7 @@
 "use client";
 
+// Dashboard is a client component because it fetches data from the backend
+// at runtime and reacts to user interactions (time range, refresh).
 import { useState, useEffect } from "react";
 import {
   TrendingUp,
@@ -26,11 +28,13 @@ import {
   ResponsiveContainer,
 } from "recharts";
 
+// High-level metric values shown in the top cards.
 interface MetricState {
   totalMentions: number;
   sentimentScore: number;
 }
 
+// One point in the mentions-over-time chart.
 interface TimelinePoint {
   date: string;
   positive: number;
@@ -38,22 +42,26 @@ interface TimelinePoint {
   neutral: number;
 }
 
+// Single slice in the sentiment pie chart.
 interface SentimentSlice {
   name: string;
   value: number;
   color: string;
 }
 
+// Bar data for the "Top Topics" chart.
 interface TopicBar {
   name: string;
   mentions: number;
 }
 
+// Bar data for the "Top Sources" list.
 interface SourceBar {
   name: string;
   mentions: number;
 }
 
+// Row in the "Recent Mentions" list.
 interface MentionItem {
   id: number;
   author: string;
@@ -63,14 +71,19 @@ interface MentionItem {
   time: string;
 }
 
+// Backend base URL. You can override this via NEXT_PUBLIC_API_BASE_URL
+// when deploying, otherwise it defaults to local FastAPI dev server.
 const API_BASE_URL =
   process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000";
 
 export default function Dashboard() {
+  // (Reserved for future) could control different dashboard tabs.
   const [activeTab, setActiveTab] = useState("overview");
   const [timeRange, setTimeRange] = useState("7d");
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [lastUpdated, setLastUpdated] = useState<string | null>(null);
+  const [brandName, setBrandName] = useState<string | null>(null);
 
   const [metrics, setMetrics] = useState<MetricState | null>(null);
   const [timelineData, setTimelineData] = useState<TimelinePoint[]>([]);
@@ -85,6 +98,8 @@ export default function Dashboard() {
     return 7;
   };
 
+  // Main data loader: calls all backend analytics + mentions endpoints
+  // in parallel for the selected time range.
   const fetchData = async () => {
     try {
       setIsLoading(true);
@@ -167,6 +182,9 @@ export default function Dashboard() {
         time: m.created_at || "",
       }));
       setMentions(mentionItems);
+
+      // Record when the dashboard was last refreshed successfully.
+      setLastUpdated(new Date().toLocaleString());
     } catch (err: any) {
       console.error(err);
       setError(err.message || "Failed to load data");
@@ -180,14 +198,33 @@ export default function Dashboard() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [timeRange]);
 
+  // Load brand settings once so we can show the current brand name
+  // in the dashboard header.
+  useEffect(() => {
+    const loadSettings = async () => {
+      try {
+        const res = await fetch(`${API_BASE_URL}/api/settings`);
+        if (!res.ok) return;
+        const data = await res.json();
+        if (data && typeof data.brand_name === "string") {
+          setBrandName(data.brand_name || null);
+        }
+      } catch {
+        // If settings fail to load, we simply keep the generic title.
+      }
+    };
+
+    loadSettings();
+  }, []);
+
   const handleRefresh = () => {
     fetchData();
   };
 
   return (
-    <div className="min-h-screen bg-slate-50 dark:bg-slate-950">
+    <div className="min-h-screen bg-gradient-to-b from-slate-50 to-slate-100 dark:from-slate-950 dark:to-slate-900">
       {/* Header */}
-      <header className="sticky top-0 z-50 border-b border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-sm">
+      <header className="sticky top-0 z-50 border-b border-slate-200 dark:border-slate-800 bg-white/90 dark:bg-slate-900/90 backdrop-blur shadow-sm">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
@@ -196,10 +233,12 @@ export default function Dashboard() {
               </div>
               <div>
                 <h1 className="text-2xl font-bold text-slate-900 dark:text-white">
-                  Brand Tracker
+                  {brandName || "Brand Tracker"}
                 </h1>
                 <p className="text-sm text-slate-500 dark:text-slate-400">
-                  Real-time Mention Monitoring
+                  {brandName
+                    ? `Real-time mention monitoring for ${brandName}`
+                    : "Real-time Mention Monitoring"}
                 </p>
               </div>
             </div>
@@ -225,15 +264,20 @@ export default function Dashboard() {
                 <option value="7d">Last 7 Days</option>
                 <option value="30d">Last 30 Days</option>
               </select>
+              {lastUpdated && (
+                <span className="hidden md:inline text-xs text-slate-500 dark:text-slate-400">
+                  Last updated: {lastUpdated}
+                </span>
+              )}
             </div>
           </div>
         </div>
       </header>
 
       {/* Main Content */}
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        {/* Metrics Grid */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8">
+        {/* Metrics Grid - high level KPIs for the selected time range */}
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
           <MetricCard
             icon={MessageSquare}
             label="Total Mentions"
@@ -264,10 +308,10 @@ export default function Dashboard() {
           />
         </div>
 
-        {/* Charts Section */}
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8">
+        {/* Charts Section - timeline + sentiment overview */}
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           {/* Timeline Chart */}
-          <div className="lg:col-span-2 bg-white dark:bg-slate-900 rounded-lg border border-slate-200 dark:border-slate-800 p-6">
+          <div className="lg:col-span-2 bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 p-6 shadow-sm">
             <h2 className="text-lg font-semibold text-slate-900 dark:text-white mb-4">
               Mention Timeline
             </h2>
@@ -307,7 +351,7 @@ export default function Dashboard() {
           </div>
 
           {/* Sentiment Distribution */}
-          <div className="bg-white dark:bg-slate-900 rounded-lg border border-slate-200 dark:border-slate-800 p-6">
+          <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 p-6 shadow-sm">
             <h2 className="text-lg font-semibold text-slate-900 dark:text-white mb-4">
               Sentiment Distribution
             </h2>
@@ -334,7 +378,7 @@ export default function Dashboard() {
         </div>
 
         {/* Topics and Sources */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           {/* Top Topics */}
           <div className="bg-white dark:bg-slate-900 rounded-lg border border-slate-200 dark:border-slate-800 p-6">
             <h2 className="text-lg font-semibold text-slate-900 dark:text-white mb-4">
@@ -406,14 +450,19 @@ export default function Dashboard() {
             </h2>
             {error && (
               <p className="text-sm text-red-600 dark:text-red-400 mb-3">
-                Failed to load data: {error}
+                Failed to load data from API. Please check that the backend is running
+                on {API_BASE_URL}.
               </p>
             )}
             <div className="space-y-3">
               {mentions.length === 0 && !error && (
-                <p className="text-sm text-slate-500 dark:text-slate-400">
-                  No mentions found for the selected time range.
-                </p>
+                <div className="text-sm text-slate-500 dark:text-slate-400">
+                  <p>No mentions found for the selected time range.</p>
+                  <p className="mt-1">
+                    If this is a fresh setup, run <code>python news_ingest.py</code> in the
+                    <code>backend</code> folder to pull live news mentions into the database.
+                  </p>
+                </div>
               )}
               {mentions.map((mention) => (
                 <div
