@@ -1,0 +1,22 @@
+# Minimal Requirements - Fast Installation
+# Use this for quick setup, then upgrade to full requirements later
+
+# FastAPI and Web Framework
+fastapi==0.100.0
+uvicorn[standard]==0.23.2
+python-multipart==0.0.6
+
+# Database
+sqlalchemy==2.0.20
+psycopg2-binary==2.9.10
+alembic==1.12.0
+
+# API & HTTP
+pydantic==1.10.12
+httpx==0.24.1
+requests==2.31.0
+
+# Utilities
+python-dotenv==1.0.0
+python-dateutil==2.8.2
+pytz==2023.3

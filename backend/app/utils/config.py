@@ -1,6 +1,4 @@
-"""
-Configuration settings for the application
-"""
+"""Configuration settings for the application"""
 from typing import List
 
 from pydantic_settings import BaseSettings
@@ -18,6 +16,11 @@ class Settings(BaseSettings):
     reddit_client_id: str = ""
     reddit_client_secret: str = ""
     news_api_key: str = ""
+
+    # Brand configuration
+    brand_name: str = ""
+    brand_keywords: str = ""
+    search_query: str = ""
 
     # ML Models
     sentiment_model: str = "distilbert-base-uncased-finetuned-sst-2-english"

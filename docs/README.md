@@ -42,6 +42,8 @@ npm run dev
 | File | Purpose |
 |------|---------|
 | [GETTING_STARTED.md](./GETTING_STARTED.md) | 3-step setup |
+| [BACKEND_SETUP_FIX.md](./BACKEND_SETUP_FIX.md) | Fix pydantic_settings error |
+| [PSYCOPG2_FIX.md](./PSYCOPG2_FIX.md) | Fix psycopg2-binary build error |
 | [FEATURES.md](./FEATURES.md) | What's included |
 | [TROUBLESHOOTING.md](./TROUBLESHOOTING.md) | Common issues |
 

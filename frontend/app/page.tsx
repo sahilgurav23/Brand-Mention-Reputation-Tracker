@@ -26,107 +26,162 @@ import {
   ResponsiveContainer,
 } from "recharts";
 
+interface MetricState {
+  totalMentions: number;
+  sentimentScore: number;
+}
+
+interface TimelinePoint {
+  date: string;
+  positive: number;
+  negative: number;
+  neutral: number;
+}
+
+interface SentimentSlice {
+  name: string;
+  value: number;
+  color: string;
+}
+
+interface TopicBar {
+  name: string;
+  mentions: number;
+}
+
+interface SourceBar {
+  name: string;
+  mentions: number;
+}
+
+interface MentionItem {
+  id: number;
+  author: string;
+  content: string;
+  source: string;
+  sentiment: string;
+  time: string;
+}
+
+const API_BASE_URL =
+  process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000";
+
 export default function Dashboard() {
   const [activeTab, setActiveTab] = useState("overview");
   const [timeRange, setTimeRange] = useState("7d");
   const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  // Mock data - Replace with actual API calls
-  const mockMetrics = {
-    totalMentions: 2847,
-    positiveChange: 12.5,
-    sentimentScore: 68,
-    alertsActive: 3,
+  const [metrics, setMetrics] = useState<MetricState | null>(null);
+  const [timelineData, setTimelineData] = useState<TimelinePoint[]>([]);
+  const [sentimentData, setSentimentData] = useState<SentimentSlice[]>([]);
+  const [topics, setTopics] = useState<TopicBar[]>([]);
+  const [sources, setSources] = useState<SourceBar[]>([]);
+  const [mentions, setMentions] = useState<MentionItem[]>([]);
+
+  const getDaysFromRange = (range: string) => {
+    if (range === "24h") return 1;
+    if (range === "30d") return 30;
+    return 7;
   };
 
-  const mockSentimentData = [
-    { name: "Positive", value: 1250, color: "#10b981" },
-    { name: "Neutral", value: 980, color: "#6b7280" },
-    { name: "Negative", value: 617, color: "#ef4444" },
-  ];
+  const fetchData = async () => {
+    try {
+      setIsLoading(true);
+      setError(null);
 
-  const mockTimelineData = [
-    { date: "Mon", positive: 120, negative: 45, neutral: 80 },
-    { date: "Tue", positive: 145, negative: 52, neutral: 95 },
-    { date: "Wed", positive: 165, negative: 38, neutral: 110 },
-    { date: "Thu", positive: 190, negative: 55, neutral: 125 },
-    { date: "Fri", positive: 210, negative: 48, neutral: 140 },
-    { date: "Sat", positive: 185, negative: 62, neutral: 120 },
-    { date: "Sun", positive: 235, negative: 41, neutral: 155 },
-  ];
+      const days = getDaysFromRange(timeRange);
 
-  const mockTopics = [
-    { name: "Product Quality", mentions: 450 },
-    { name: "Customer Service", mentions: 380 },
-    { name: "Pricing", mentions: 290 },
-    { name: "Shipping", mentions: 245 },
-    { name: "Brand Values", mentions: 180 },
-  ];
+      const [summaryRes, timelineRes, sentimentRes, topicsRes, sourcesRes, mentionsRes] =
+        await Promise.all([
+          fetch(`${API_BASE_URL}/api/analytics/summary?days=${days}`),
+          fetch(`${API_BASE_URL}/api/analytics/timeline?days=${days}`),
+          fetch(`${API_BASE_URL}/api/analytics/sentiment?days=${days}`),
+          fetch(`${API_BASE_URL}/api/analytics/topics?days=${days}&limit=5`),
+          fetch(`${API_BASE_URL}/api/analytics/sources?days=${days}`),
+          fetch(`${API_BASE_URL}/api/mentions?days=${days}&limit=10`),
+        ]);
 
-  const mockSources = [
-    { name: "Twitter", mentions: 1200 },
-    { name: "Reddit", mentions: 850 },
-    { name: "News", mentions: 420 },
-    { name: "Blogs", mentions: 377 },
-  ];
+      if (!summaryRes.ok) throw new Error("Failed to load summary");
 
-  const mockAlerts = [
-    {
-      id: 1,
-      type: "spike",
-      title: "Mention Spike Detected",
-      description: "245% increase in mentions in the last 2 hours",
-      severity: "high",
-      time: "2 hours ago",
-    },
-    {
-      id: 2,
-      type: "sentiment",
-      title: "Negative Sentiment Shift",
-      description: "Negative mentions increased to 35% of total",
-      severity: "medium",
-      time: "4 hours ago",
-    },
-    {
-      id: 3,
-      type: "trend",
-      title: "Trending Topic",
-      description: '"Product Quality" is trending with 450 mentions',
-      severity: "low",
-      time: "6 hours ago",
-    },
-  ];
+      const summary = await summaryRes.json();
+      const timelineJson = timelineRes.ok ? await timelineRes.json() : { timeline: {} };
+      const sentimentJson = sentimentRes.ok
+        ? await sentimentRes.json()
+        : { positive: 0, negative: 0, neutral: 0, total: 0 };
+      const topicsJson = topicsRes.ok ? await topicsRes.json() : { topics: [] };
+      const sourcesJson = sourcesRes.ok ? await sourcesRes.json() : { sources: [] };
+      const mentionsJson = mentionsRes.ok ? await mentionsRes.json() : [];
 
-  const mockMentions = [
-    {
-      id: 1,
-      author: "Sarah Johnson",
-      content: "Love the new product update! Great improvements.",
-      source: "Twitter",
-      sentiment: "positive",
-      time: "2 hours ago",
-    },
-    {
-      id: 2,
-      author: "Tech Review Daily",
-      content: "Comprehensive review of the latest features...",
-      source: "Blog",
-      sentiment: "neutral",
-      time: "3 hours ago",
-    },
-    {
-      id: 3,
-      author: "Customer Support",
-      content: "Disappointed with the recent changes",
-      source: "Reddit",
-      sentiment: "negative",
-      time: "4 hours ago",
-    },
-  ];
+      // Metrics
+      const total = typeof summary.total_mentions === "number" ? summary.total_mentions : 0;
+      const positive = sentimentJson.positive ?? 0;
+      const negative = sentimentJson.negative ?? 0;
+      const neutral = sentimentJson.neutral ?? 0;
+      const sentimentTotal = positive + negative + neutral;
+      const sentimentScore =
+        sentimentTotal > 0 ? Math.round(((positive - negative) / sentimentTotal + 1) * 50) : 0;
+
+      setMetrics({ totalMentions: total, sentimentScore });
+
+      // Timeline -> array for recharts
+      const timelineArray: TimelinePoint[] = Object.entries(
+        timelineJson.timeline ?? {}
+      ).map(([date, values]: [string, any]) => ({
+        date,
+        positive: values.positive ?? 0,
+        negative: values.negative ?? 0,
+        neutral: values.neutral ?? 0,
+      }));
+      setTimelineData(timelineArray);
+
+      // Sentiment pie chart
+      const sentimentSlices: SentimentSlice[] = [
+        { name: "Positive", value: positive, color: "#10b981" },
+        { name: "Neutral", value: neutral, color: "#6b7280" },
+        { name: "Negative", value: negative, color: "#ef4444" },
+      ];
+      setSentimentData(sentimentSlices);
+
+      // Topics
+      const topicBars: TopicBar[] = (topicsJson.topics ?? []).map((t: any) => ({
+        name: t.topic ?? "Unknown",
+        mentions: t.count ?? 0,
+      }));
+      setTopics(topicBars);
+
+      // Sources
+      const sourceBars: SourceBar[] = (sourcesJson.sources ?? []).map((s: any) => ({
+        name: s.source ?? "Unknown",
+        mentions: s.count ?? 0,
+      }));
+      setSources(sourceBars);
+
+      // Recent mentions
+      const mentionItems: MentionItem[] = (mentionsJson ?? []).map((m: any) => ({
+        id: m.id,
+        author: m.author || "Unknown",
+        content: m.content || "",
+        source: m.source || "Unknown",
+        sentiment: m.sentiment || "neutral",
+        time: m.created_at || "",
+      }));
+      setMentions(mentionItems);
+    } catch (err: any) {
+      console.error(err);
+      setError(err.message || "Failed to load data");
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchData();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [timeRange]);
 
   const handleRefresh = () => {
-    setIsLoading(true);
-    setTimeout(() => setIsLoading(false), 1000);
+    fetchData();
   };
 
   return (
@@ -182,29 +237,29 @@ export default function Dashboard() {
           <MetricCard
             icon={MessageSquare}
             label="Total Mentions"
-            value={mockMetrics.totalMentions}
-            change={mockMetrics.positiveChange}
+            value={metrics ? metrics.totalMentions : "-"}
+            change={0}
             color="blue"
           />
           <MetricCard
             icon={TrendingUp}
             label="Sentiment Score"
-            value={`${mockMetrics.sentimentScore}%`}
-            change={5.2}
+            value={metrics ? `${metrics.sentimentScore}%` : "-"}
+            change={0}
             color="green"
           />
           <MetricCard
             icon={AlertCircle}
             label="Active Alerts"
-            value={mockMetrics.alertsActive}
-            change={-2}
+            value={"-"}
+            change={0}
             color="red"
           />
           <MetricCard
             icon={Zap}
             label="Engagement Rate"
-            value="24.5%"
-            change={8.1}
+            value="-"
+            change={0}
             color="purple"
           />
         </div>
@@ -217,7 +272,7 @@ export default function Dashboard() {
               Mention Timeline
             </h2>
             <ResponsiveContainer width="100%" height={300}>
-              <LineChart data={mockTimelineData}>
+              <LineChart data={timelineData}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
                 <XAxis stroke="#94a3b8" />
                 <YAxis stroke="#94a3b8" />
@@ -259,7 +314,7 @@ export default function Dashboard() {
             <ResponsiveContainer width="100%" height={300}>
               <PieChart>
                 <Pie
-                  data={mockSentimentData}
+                  data={sentimentData}
                   cx="50%"
                   cy="50%"
                   labelLine={false}
@@ -268,7 +323,7 @@ export default function Dashboard() {
                   fill="#8884d8"
                   dataKey="value"
                 >
-                  {mockSentimentData.map((entry, index) => (
+                  {sentimentData.map((entry, index) => (
                     <Cell key={`cell-${index}`} fill={entry.color} />
                   ))}
                 </Pie>
@@ -286,7 +341,7 @@ export default function Dashboard() {
               Top Topics
             </h2>
             <ResponsiveContainer width="100%" height={250}>
-              <BarChart data={mockTopics}>
+              <BarChart data={topics}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
                 <XAxis dataKey="name" stroke="#94a3b8" angle={-45} textAnchor="end" height={100} />
                 <YAxis stroke="#94a3b8" />
@@ -308,7 +363,7 @@ export default function Dashboard() {
               Top Sources
             </h2>
             <div className="space-y-4">
-              {mockSources.map((source) => (
+              {sources.map((source) => (
                 <div key={source.name} className="flex items-center justify-between">
                   <span className="text-slate-600 dark:text-slate-400">{source.name}</span>
                   <div className="flex items-center gap-2">
@@ -316,7 +371,7 @@ export default function Dashboard() {
                       <div
                         className="h-full bg-gradient-to-r from-blue-500 to-purple-600"
                         style={{
-                          width: `${(source.mentions / 1200) * 100}%`,
+                          width: `${(source.mentions / (sources[0]?.mentions || 1)) * 100}%`,
                         }}
                       />
                     </div>
@@ -338,29 +393,8 @@ export default function Dashboard() {
               <AlertCircle className="w-5 h-5" />
               Active Alerts
             </h2>
-            <div className="space-y-3">
-              {mockAlerts.map((alert) => (
-                <div
-                  key={alert.id}
-                  className={`p-3 rounded-lg border-l-4 ${
-                    alert.severity === "high"
-                      ? "border-l-red-500 bg-red-50 dark:bg-red-950"
-                      : alert.severity === "medium"
-                      ? "border-l-yellow-500 bg-yellow-50 dark:bg-yellow-950"
-                      : "border-l-blue-500 bg-blue-50 dark:bg-blue-950"
-                  }`}
-                >
-                  <p className="font-semibold text-sm text-slate-900 dark:text-white">
-                    {alert.title}
-                  </p>
-                  <p className="text-xs text-slate-600 dark:text-slate-400 mt-1">
-                    {alert.description}
-                  </p>
-                  <p className="text-xs text-slate-500 dark:text-slate-500 mt-2">
-                    {alert.time}
-                  </p>
-                </div>
-              ))}
+            <div className="text-sm text-slate-500 dark:text-slate-400">
+              Alerts will appear here once alert rules are configured in the backend.
             </div>
           </div>
 
@@ -370,8 +404,18 @@ export default function Dashboard() {
               <MessageSquare className="w-5 h-5" />
               Recent Mentions
             </h2>
+            {error && (
+              <p className="text-sm text-red-600 dark:text-red-400 mb-3">
+                Failed to load data: {error}
+              </p>
+            )}
             <div className="space-y-3">
-              {mockMentions.map((mention) => (
+              {mentions.length === 0 && !error && (
+                <p className="text-sm text-slate-500 dark:text-slate-400">
+                  No mentions found for the selected time range.
+                </p>
+              )}
+              {mentions.map((mention) => (
                 <div
                   key={mention.id}
                   className="p-3 rounded-lg bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700"

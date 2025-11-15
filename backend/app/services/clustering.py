@@ -1,23 +1,16 @@
-"""
-Topic clustering service
-"""
-from typing import List
+"""Topic clustering service (lightweight stub).
 
-from sentence_transformers import SentenceTransformer
-from sklearn.cluster import KMeans
+This implementation deliberately avoids importing heavy ML dependencies
+like ``sentence_transformers`` and ``scikit-learn`` so that the backend
+can run in constrained environments. The public function signatures are
+kept the same so that other parts of the codebase do not need changes.
+"""
 
-from app.utils.config import settings
+from typing import List, Dict, Any
+
 from app.utils.logger import setup_logger
 
 logger = setup_logger(__name__)
-
-# Initialize embedding model
-try:
-    embedding_model = SentenceTransformer(settings.embedding_model)
-    logger.info(f"Loaded embedding model: {settings.embedding_model}")
-except Exception as e:
-    logger.error(f"Failed to load embedding model: {str(e)}")
-    embedding_model = None
 
 
 async def get_topic_for_mention(text: str) -> str:
@@ -29,28 +22,30 @@ async def get_topic_for_mention(text: str) -> str:
         
     Returns:
         Topic string
+
+    Note:
+        This is a stub implementation. It does *not* perform real
+        clustering; it just returns a generic topic so that mention
+        creation works without ML dependencies.
     """
-    if not embedding_model:
-        logger.warning("Embedding model not available")
+
+    if not text.strip():
         return "uncategorized"
 
-    try:
-        # Get embedding
-        embedding = embedding_model.encode(text, convert_to_tensor=False)
+    # Very naive rule-based stub: could be improved later
+    lowered = text.lower()
+    if any(word in lowered for word in ["error", "bug", "issue", "problem"]):
+        topic = "support"
+    elif any(word in lowered for word in ["feature", "update", "release"]):
+        topic = "product-updates"
+    else:
+        topic = "general"
 
-        # For now, return a generic topic
-        # In production, this would compare against known topics
-        # and assign the closest match
-
-        logger.debug(f"Generated embedding for topic classification")
-        return "general"
-
-    except Exception as e:
-        logger.error(f"Error getting topic: {str(e)}")
-        return "uncategorized"
+    logger.debug("Assigned stub topic '%s' for text: %s", topic, text[:80])
+    return topic
 
 
-async def cluster_mentions(texts: List[str], n_clusters: int = 5) -> dict:
+async def cluster_mentions(texts: List[str], n_clusters: int = 5) -> Dict[str, Any]:
     """
     Cluster mentions into topics
     
@@ -59,40 +54,18 @@ async def cluster_mentions(texts: List[str], n_clusters: int = 5) -> dict:
         n_clusters: Number of clusters to create
         
     Returns:
-        Dictionary with cluster assignments and centers
+        Dictionary with cluster assignments and centers.
+
+    Note:
+        Stub implementation: each text becomes its own "cluster".
     """
-    if not embedding_model:
-        logger.warning("Embedding model not available")
-        return {"clusters": [], "centers": []}
 
-    try:
-        if len(texts) < n_clusters:
-            n_clusters = max(1, len(texts) - 1)
+    clusters: Dict[int, List[str]] = {}
+    for idx, text in enumerate(texts):
+        clusters[idx] = [text]
 
-        # Get embeddings
-        embeddings = embedding_model.encode(texts, convert_to_tensor=False)
-
-        # Cluster
-        kmeans = KMeans(n_clusters=n_clusters, random_state=42, n_init=10)
-        labels = kmeans.fit_predict(embeddings)
-
-        # Group texts by cluster
-        clusters = {}
-        for idx, label in enumerate(labels):
-            if label not in clusters:
-                clusters[label] = []
-            clusters[label].append(texts[idx])
-
-        logger.info(f"Clustered {len(texts)} texts into {n_clusters} topics")
-        return {
-            "clusters": clusters,
-            "centers": kmeans.cluster_centers_.tolist(),
-            "labels": labels.tolist(),
-        }
-
-    except Exception as e:
-        logger.error(f"Error clustering mentions: {str(e)}")
-        return {"clusters": {}, "centers": [], "labels": []}
+    logger.info("Stub clustering: returned %d single-item clusters", len(texts))
+    return {"clusters": clusters, "centers": [], "labels": list(range(len(texts)))}
 
 
 async def get_embeddings(texts: List[str]) -> List[List[float]]:
@@ -103,17 +76,15 @@ async def get_embeddings(texts: List[str]) -> List[List[float]]:
         texts: List of texts
         
     Returns:
-        List of embeddings
+        List of embeddings.
+
+    Note:
+        Stub implementation: returns an empty list to avoid depending on
+        external ML libraries.
     """
-    if not embedding_model:
-        logger.warning("Embedding model not available")
+
+    if not texts:
         return []
 
-    try:
-        embeddings = embedding_model.encode(texts, convert_to_tensor=False)
-        logger.debug(f"Generated embeddings for {len(texts)} texts")
-        return embeddings.tolist()
-
-    except Exception as e:
-        logger.error(f"Error generating embeddings: {str(e)}")
-        return []
+    logger.warning("Stub get_embeddings called; returning empty embeddings list")
+    return []
