@@ -1,39 +1,16 @@
 @echo off
 REM Brand Mention & Reputation Tracker - Quick Start Script (Windows)
-REM This script starts all services for development
+REM This script now only starts the backend and frontend directly.
+REM Make sure PostgreSQL is already running (for example on localhost:5432).
 
 echo.
 echo ============================================
 echo Brand Mention & Reputation Tracker
-echo Quick Start Script
+echo Quick Start Script (No Docker)
 echo ============================================
 echo.
 
-REM Check if Docker is running
-docker ps >nul 2>&1
-if errorlevel 1 (
-    echo ERROR: Docker is not running. Please start Docker Desktop.
-    pause
-    exit /b 1
-)
-
-echo [1/3] Starting Database...
-cd database
-docker-compose up -d
-if errorlevel 1 (
-    echo ERROR: Failed to start database
-    pause
-    exit /b 1
-)
-cd ..
-echo Database started successfully!
-echo.
-
-REM Wait for database to be ready
-echo Waiting for database to be ready...
-timeout /t 3 /nobreak
-
-echo [2/3] Starting Backend...
+echo [1/2] Starting Backend...
 cd backend
 
 REM Check if venv exists
@@ -55,7 +32,7 @@ echo.
 REM Wait a moment for backend to start
 timeout /t 3 /nobreak
 
-echo [3/3] Starting Frontend...
+echo [2/2] Starting Frontend...
 cd frontend
 
 REM Check if node_modules exists
@@ -77,13 +54,11 @@ echo.
 echo Frontend:  http://localhost:3000
 echo Backend:   http://localhost:8000
 echo API Docs:  http://localhost:8000/docs
-echo Database:  localhost:5432
+echo Database:  localhost:5432  ^(ensure this is running separately; no Docker is started by this script^)
 echo.
 echo Press any key to continue...
 pause
 
 echo.
-echo To stop all services:
-echo 1. Close the Backend and Frontend windows
-echo 2. Run: docker-compose -f database/docker-compose.yml down
+echo To stop all services, just close the Backend and Frontend windows.
 echo.

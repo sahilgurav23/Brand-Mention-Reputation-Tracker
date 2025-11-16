@@ -15,7 +15,7 @@ logger = setup_logger(__name__)
 
 async def detect_spikes(
     db: Session,
-    threshold_sigma: float = 2.5,
+    threshold_sigma: float = 0.8,
     window_hours: int = 24,
 ) -> List[Dict]:
     """
@@ -118,9 +118,11 @@ async def detect_sentiment_shift(
 
         # Determine if there's a significant shift
         negative_percentage = percentages.get("negative", 0)
-        if negative_percentage > 50:
+        # For demo purposes we make this easier to trigger: if 20% or
+        # more of recent mentions are negative, treat it as a negative shift.
+        if negative_percentage >= 20:
             shift = "negative"
-        elif negative_percentage < 20:
+        elif negative_percentage <= 5:
             shift = "positive"
         else:
             shift = "neutral"
@@ -170,3 +172,57 @@ async def create_spike_alert(
         db.rollback()
         logger.error(f"Error creating spike alert: {str(e)}")
         return None
+
+
+async def create_sentiment_alert(
+    db: Session,
+    shift_data: Dict,
+) -> Alert | None:
+    """Create an alert for a strong negative sentiment shift.
+
+    This is a simple rule-based alert that fires when the
+    ``detect_sentiment_shift`` helper reports a "negative" shift.
+    """
+
+    try:
+        percentages = shift_data.get("percentages") or {}
+        negative_pct = percentages.get("negative", 0)
+
+        alert = Alert(
+            alert_type="sentiment_shift",
+            title="Negative Sentiment Spike",
+            description=f"Negative mentions climbed to {negative_pct:.1f}% of recent mentions.",
+            severity="high" if negative_pct > 70 else "medium",
+        )
+
+        db.add(alert)
+        db.commit()
+        db.refresh(alert)
+
+        logger.info(f"Created sentiment alert {alert.id}")
+        return alert
+
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Error creating sentiment alert: {str(e)}")
+        return None
+
+
+async def run_basic_alert_checks(db: Session) -> None:
+    """Run simple alert rules for mention spikes and negative sentiment.
+
+    This helper can be called after ingestion to populate the Alerts
+    table so the dashboard can show "Active Alerts".
+    """
+
+    # Spike detection based on volume statistics.
+    spikes = await detect_spikes(db)
+    if spikes:
+        # Use the most recent spike entry.
+        latest_spike = spikes[-1]
+        await create_spike_alert(db, latest_spike)
+
+    # Sentiment shift detection based on last window_hours.
+    shift_info = await detect_sentiment_shift(db)
+    if shift_info.get("shift") == "negative":
+        await create_sentiment_alert(db, shift_info)

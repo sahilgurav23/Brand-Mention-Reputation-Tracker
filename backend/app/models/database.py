@@ -86,6 +86,9 @@ engine = create_engine(
     echo=False,
 )
 
+# Create all tables defined by SQLAlchemy models if they do not exist yet
+Base.metadata.create_all(bind=engine)
+
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 

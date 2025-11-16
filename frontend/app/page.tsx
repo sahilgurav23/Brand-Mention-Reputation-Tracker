@@ -32,6 +32,7 @@ import {
 interface MetricState {
   totalMentions: number;
   sentimentScore: number;
+  activeAlerts: number;
 }
 
 // One point in the mentions-over-time chart.
@@ -71,6 +72,15 @@ interface MentionItem {
   time: string;
 }
 
+// Row in the "Active Alerts" list.
+interface AlertItem {
+  id: number;
+  title: string;
+  description: string;
+  severity: string;
+  created_at: string;
+}
+
 // Backend base URL. You can override this via NEXT_PUBLIC_API_BASE_URL
 // when deploying, otherwise it defaults to local FastAPI dev server.
 const API_BASE_URL =
@@ -91,6 +101,7 @@ export default function Dashboard() {
   const [topics, setTopics] = useState<TopicBar[]>([]);
   const [sources, setSources] = useState<SourceBar[]>([]);
   const [mentions, setMentions] = useState<MentionItem[]>([]);
+  const [alerts, setAlerts] = useState<AlertItem[]>([]);
 
   const getDaysFromRange = (range: string) => {
     if (range === "24h") return 1;
@@ -107,15 +118,23 @@ export default function Dashboard() {
 
       const days = getDaysFromRange(timeRange);
 
-      const [summaryRes, timelineRes, sentimentRes, topicsRes, sourcesRes, mentionsRes] =
-        await Promise.all([
-          fetch(`${API_BASE_URL}/api/analytics/summary?days=${days}`),
-          fetch(`${API_BASE_URL}/api/analytics/timeline?days=${days}`),
-          fetch(`${API_BASE_URL}/api/analytics/sentiment?days=${days}`),
-          fetch(`${API_BASE_URL}/api/analytics/topics?days=${days}&limit=5`),
-          fetch(`${API_BASE_URL}/api/analytics/sources?days=${days}`),
-          fetch(`${API_BASE_URL}/api/mentions?days=${days}&limit=10`),
-        ]);
+      const [
+        summaryRes,
+        timelineRes,
+        sentimentRes,
+        topicsRes,
+        sourcesRes,
+        mentionsRes,
+        alertsRes,
+      ] = await Promise.all([
+        fetch(`${API_BASE_URL}/api/analytics/summary?days=${days}`),
+        fetch(`${API_BASE_URL}/api/analytics/timeline?days=${days}`),
+        fetch(`${API_BASE_URL}/api/analytics/sentiment?days=${days}`),
+        fetch(`${API_BASE_URL}/api/analytics/topics?days=${days}&limit=5`),
+        fetch(`${API_BASE_URL}/api/analytics/sources?days=${days}`),
+        fetch(`${API_BASE_URL}/api/mentions?days=${days}&limit=10`),
+        fetch(`${API_BASE_URL}/api/alerts?is_active=true&limit=5`),
+      ]);
 
       if (!summaryRes.ok) throw new Error("Failed to load summary");
 
@@ -127,6 +146,7 @@ export default function Dashboard() {
       const topicsJson = topicsRes.ok ? await topicsRes.json() : { topics: [] };
       const sourcesJson = sourcesRes.ok ? await sourcesRes.json() : { sources: [] };
       const mentionsJson = mentionsRes.ok ? await mentionsRes.json() : [];
+      const alertsJson = alertsRes.ok ? await alertsRes.json() : [];
 
       // Metrics
       const total = typeof summary.total_mentions === "number" ? summary.total_mentions : 0;
@@ -137,7 +157,17 @@ export default function Dashboard() {
       const sentimentScore =
         sentimentTotal > 0 ? Math.round(((positive - negative) / sentimentTotal + 1) * 50) : 0;
 
-      setMetrics({ totalMentions: total, sentimentScore });
+      // Alerts
+      const alertItems: AlertItem[] = (alertsJson ?? []).map((a: any) => ({
+        id: a.id,
+        title: a.title || "",
+        description: a.description || "",
+        severity: a.severity || "medium",
+        created_at: a.created_at || "",
+      }));
+      setAlerts(alertItems);
+
+      setMetrics({ totalMentions: total, sentimentScore, activeAlerts: alertItems.length });
 
       // Timeline -> array for recharts
       const timelineArray: TimelinePoint[] = Object.entries(
@@ -217,8 +247,25 @@ export default function Dashboard() {
     loadSettings();
   }, []);
 
-  const handleRefresh = () => {
-    fetchData();
+  const handleRefresh = async () => {
+    try {
+      setIsLoading(true);
+      setError(null);
+
+      // Trigger backend ingestion so new mentions are pulled from
+      // NewsAPI / Twitter / Reddit before we reload the dashboard data.
+      const res = await fetch(`${API_BASE_URL}/api/ingest/run`, {
+        method: "POST",
+      });
+
+      if (!res.ok) {
+        console.error("Ingestion trigger failed");
+      }
+    } catch (err) {
+      console.error(err);
+    } finally {
+      await fetchData();
+    }
   };
 
   return (
@@ -300,7 +347,7 @@ export default function Dashboard() {
           <MetricCard
             icon={AlertCircle}
             label="Active Alerts"
-            value={"-"}
+            value={metrics ? metrics.activeAlerts : "-"}
             change={0}
             color="red"
           />
@@ -442,9 +489,46 @@ export default function Dashboard() {
               <AlertCircle className="w-5 h-5" />
               Active Alerts
             </h2>
-            <div className="text-sm text-slate-500 dark:text-slate-400">
-              Alerts will appear here once alert rules are configured in the backend.
-            </div>
+            {alerts.length === 0 ? (
+              <div className="text-sm text-slate-500 dark:text-slate-400">
+                No active alerts right now.
+                <br />
+                Alerts are created automatically when mention volume spikes or when negative
+                sentiment becomes very high.
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {alerts.map((alert) => (
+                  <div
+                    key={alert.id}
+                    className="p-3 rounded-lg bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700"
+                  >
+                    <div className="flex items-center justify-between mb-1">
+                      <p className="text-sm font-semibold text-slate-900 dark:text-white">
+                        {alert.title}
+                      </p>
+                      <span
+                        className={`text-xs px-2 py-1 rounded-full ${
+                          alert.severity === "high"
+                            ? "bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200"
+                            : alert.severity === "medium"
+                            ? "bg-amber-100 text-amber-800 dark:bg-amber-900 dark:text-amber-200"
+                            : "bg-emerald-100 text-emerald-800 dark:bg-emerald-900 dark:text-emerald-200"
+                        }`}
+                      >
+                        {alert.severity}
+                      </span>
+                    </div>
+                    <p className="text-xs text-slate-600 dark:text-slate-400 mb-1">
+                      {alert.description}
+                    </p>
+                    <p className="text-[11px] text-slate-400 dark:text-slate-500">
+                      {alert.created_at}
+                    </p>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
 
           {/* Recent Mentions */}

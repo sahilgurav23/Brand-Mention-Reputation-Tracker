@@ -22,9 +22,10 @@ from dateutil.parser import isoparse
 from sqlalchemy import text
 
 from app.models.database import Mention, SessionLocal
-from app.services.aggregator import aggregate_from_news
+from app.services.aggregator import aggregate_all_sources
 from app.services.clustering import get_topic_for_mention
 from app.services.sentiment import analyze_sentiment
+from app.services.alerts import run_basic_alert_checks
 from app.utils.config import settings
 from app.utils.logger import setup_logger
 
@@ -32,43 +33,52 @@ logger = setup_logger(__name__)
 
 
 def load_effective_settings() -> Dict[str, str]:
-  """Load editable settings from the app_settings table if present.
+    """Load editable settings from the app_settings table if present.
 
-  Values saved from the /settings UI are stored in app_settings. If
-  that table or its row does not exist yet, we fall back to
-  app.utils.config.settings (i.e. .env) so ingestion still works.
-  """
+    Values saved from the /settings UI are stored in app_settings. If
+    that table or its row does not exist yet, we fall back to
+    app.utils.config.settings (i.e. .env) so ingestion still works.
+    """
 
-  db = SessionLocal()
-  try:
-      row = db.execute(
-          text(
-              "SELECT news_api_key, brand_name, brand_keywords, search_query "
-              "FROM app_settings ORDER BY id LIMIT 1"
-          )
-      ).fetchone()
+    db = SessionLocal()
+    try:
+        row = db.execute(
+            text(
+                "SELECT news_api_key, twitter_api_key, twitter_api_secret, "
+                "reddit_client_id, reddit_client_secret, brand_name, brand_keywords, search_query "
+                "FROM app_settings ORDER BY id LIMIT 1"
+            )
+        ).fetchone()
 
-      if row:
-          return {
-              "news_api_key": row[0] or settings.news_api_key,
-              "brand_name": row[1] or settings.brand_name,
-              "brand_keywords": row[2] or settings.brand_keywords,
-              "search_query": row[3] or settings.search_query,
-          }
+        if row:
+            return {
+                "news_api_key": row[0] or settings.news_api_key,
+                "twitter_api_key": row[1] or settings.twitter_api_key,
+                "twitter_api_secret": row[2] or settings.twitter_api_secret,
+                "reddit_client_id": row[3] or settings.reddit_client_id,
+                "reddit_client_secret": row[4] or settings.reddit_client_secret,
+                "brand_name": row[5] or settings.brand_name,
+                "brand_keywords": row[6] or settings.brand_keywords,
+                "search_query": row[7] or settings.search_query,
+            }
 
-      # No DB row yet: fall back entirely to config.
-      return {
-          "news_api_key": settings.news_api_key,
-          "brand_name": settings.brand_name,
-          "brand_keywords": settings.brand_keywords,
-          "search_query": settings.search_query,
-      }
-  finally:
-      db.close()
+        # No DB row yet: fall back entirely to config.
+        return {
+            "news_api_key": settings.news_api_key,
+            "twitter_api_key": settings.twitter_api_key,
+            "twitter_api_secret": settings.twitter_api_secret,
+            "reddit_client_id": settings.reddit_client_id,
+            "reddit_client_secret": settings.reddit_client_secret,
+            "brand_name": settings.brand_name,
+            "brand_keywords": settings.brand_keywords,
+            "search_query": settings.search_query,
+        }
+    finally:
+        db.close()
 
 
 async def ingest_news_mentions() -> None:
-    """Fetch news articles for the configured brand and store them as mentions.
+    """Fetch mentions from all configured sources and store them.
 
     The goal is to populate the ``mentions`` table so that:
     - ``/api/mentions`` returns real rows.
@@ -79,9 +89,17 @@ async def ingest_news_mentions() -> None:
     effective = load_effective_settings()
 
     # Keep the global settings object in sync for downstream services
-    # such as aggregate_from_news, which reads settings.news_api_key.
+    # such as aggregate_* functions, which read from app.utils.config.settings.
     if effective.get("news_api_key"):
         settings.news_api_key = effective["news_api_key"]  # type: ignore[assignment]
+    if effective.get("twitter_api_key"):
+        settings.twitter_api_key = effective["twitter_api_key"]  # type: ignore[assignment]
+    if effective.get("twitter_api_secret"):
+        settings.twitter_api_secret = effective["twitter_api_secret"]  # type: ignore[assignment]
+    if effective.get("reddit_client_id"):
+        settings.reddit_client_id = effective["reddit_client_id"]  # type: ignore[assignment]
+    if effective.get("reddit_client_secret"):
+        settings.reddit_client_secret = effective["reddit_client_secret"]  # type: ignore[assignment]
 
     # Decide what query to send to NewsAPI.
     # We try, in order: search_query, brand_keywords, then brand_name.
@@ -97,12 +115,12 @@ async def ingest_news_mentions() -> None:
         logger.error("No search_query, brand_keywords, or brand_name configured; nothing to query.")
         return
 
-    logger.info("Starting NewsAPI ingestion for query: %s", query)
+    logger.info("Starting ingestion from all sources for query: %s", query)
 
-    # 2) Fetch raw articles from NewsAPI (already normalized into simple dicts).
-    articles = await aggregate_from_news(query)
+    # 2) Fetch raw mentions from all sources (already normalized into simple dicts).
+    articles = await aggregate_all_sources(query)
     if not articles:
-        logger.info("No articles returned from NewsAPI; nothing to ingest.")
+        logger.info("No mentions returned from any source; nothing to ingest.")
         return
 
     db = SessionLocal()
@@ -148,10 +166,12 @@ async def ingest_news_mentions() -> None:
             db.add(db_mention)
             created_count += 1
 
-        # 4) Persist all new mentions in a single transaction.
+        # 4) Persist all new mentions in a single transaction and then
+        #    run simple alert checks (spikes + negative sentiment).
         if created_count:
             db.commit()
-        logger.info("Ingested %d news mentions into the database", created_count)
+            await run_basic_alert_checks(db)
+        logger.info("Ingested %d mentions into the database", created_count)
 
     except Exception as exc:
         db.rollback()
