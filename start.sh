@@ -20,20 +20,9 @@ if [ -n "${RAILWAY_ENVIRONMENT:-}" ]; then
 
   cd backend
 
-  # Check if venv exists
-  if [ ! -d "venv" ]; then
-      echo "Creating virtual environment..."
-      python3 -m venv venv
-  fi
-
-  # Activate venv and install dependencies
-  # shellcheck disable=SC1091
-  source venv/bin/activate
-  pip install -q -r requirements.txt
-
   PORT_TO_USE="${PORT:-8000}"
   echo "Starting uvicorn on port ${PORT_TO_USE}..."
-  exec python -m uvicorn app.main:app --host 0.0.0.0 --port "${PORT_TO_USE}"
+  exec uvicorn app.main:app --host 0.0.0.0 --port "${PORT_TO_USE}"
 fi
 
 # Local development path (non-Railway)
