@@ -1,45 +1,53 @@
 #!/bin/bash
 
 # Brand Mention & Reputation Tracker - Quick Start Script (macOS/Linux)
-# This script starts all services for development
+# This script no longer uses Docker. It either:
+# - On Railway: starts only the FastAPI backend with uvicorn.
+# - Locally: starts backend + frontend for development, assuming PostgreSQL
+#   is already running (e.g. on localhost:5432).
 
 set -e
 
 echo ""
 echo "============================================"
 echo "Brand Mention & Reputation Tracker"
-echo "Quick Start Script"
+echo "Quick Start Script (No Docker)"
 echo "============================================"
 echo ""
 
-# Check if Docker is running
-if ! docker ps > /dev/null 2>&1; then
-    echo "ERROR: Docker is not running. Please start Docker."
-    exit 1
+if [ -n "${RAILWAY_ENVIRONMENT:-}" ]; then
+  echo "Running inside Railway – starting backend only (no Docker, no frontend)."
+
+  cd backend
+
+  # Check if venv exists
+  if [ ! -d "venv" ]; then
+      echo "Creating virtual environment..."
+      python3 -m venv venv
+  fi
+
+  # Activate venv and install dependencies
+  # shellcheck disable=SC1091
+  source venv/bin/activate
+  pip install -q -r requirements.txt
+
+  PORT_TO_USE="${PORT:-8000}"
+  echo "Starting uvicorn on port ${PORT_TO_USE}..."
+  exec python -m uvicorn app.main:app --host 0.0.0.0 --port "${PORT_TO_USE}"
 fi
 
-# Function to cleanup on exit
+# Local development path (non-Railway)
+echo "Running locally – starting backend and frontend. Ensure PostgreSQL is already running."
+
 cleanup() {
     echo ""
     echo "Cleaning up..."
-    # Kill background processes
     jobs -p | xargs -r kill 2>/dev/null || true
 }
 
 trap cleanup EXIT
 
-echo "[1/3] Starting Database..."
-cd database
-docker-compose up -d
-cd ..
-echo "Database started successfully!"
-echo ""
-
-# Wait for database to be ready
-echo "Waiting for database to be ready..."
-sleep 3
-
-echo "[2/3] Starting Backend..."
+echo "[1/2] Starting Backend..."
 cd backend
 
 # Check if venv exists
@@ -49,6 +57,7 @@ if [ ! -d "venv" ]; then
 fi
 
 # Activate venv and install dependencies
+# shellcheck disable=SC1091
 source venv/bin/activate
 pip install -q -r requirements.txt
 
@@ -62,7 +71,7 @@ echo ""
 # Wait for backend to start
 sleep 3
 
-echo "[3/3] Starting Frontend..."
+echo "[2/2] Starting Frontend..."
 cd frontend
 
 # Check if node_modules exists
@@ -85,7 +94,7 @@ echo ""
 echo "Frontend:  http://localhost:3000"
 echo "Backend:   http://localhost:8000"
 echo "API Docs:  http://localhost:8000/docs"
-echo "Database:  localhost:5432"
+echo "Database:  localhost:5432 (ensure this is running separately; this script does not start it)"
 echo ""
 echo "Press Ctrl+C to stop all services"
 echo ""
